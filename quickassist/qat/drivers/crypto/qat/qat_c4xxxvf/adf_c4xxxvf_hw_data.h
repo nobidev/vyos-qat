@@ -1,0 +1,36 @@
+/* SPDX-License-Identifier: (BSD-3-Clause OR GPL-2.0-only) */
+/* Copyright(c) 2016 - 2021 Intel Corporation */
+
+#ifndef ADF_C4XXXVF_HW_DATA_H_
+#define ADF_C4XXXVF_HW_DATA_H_
+
+#define ADF_C4XXXIOV_PMISC_BAR 1
+#define ADF_C4XXXIOV_ACCELERATORS_MASK 0x1
+#define ADF_C4XXXIOV_ACCELENGINES_MASK 0x1
+#define ADF_C4XXXIOV_MAX_ACCELERATORS 1
+#define ADF_C4XXXIOV_MAX_ACCELENGINES 1
+#define ADF_C4XXXIOV_NUM_RINGS_PER_BANK 8
+#define ADF_C4XXXIOV_RX_RINGS_OFFSET 4
+#define ADF_C4XXXIOV_TX_RINGS_MASK 0xF
+#define ADF_C4XXXIOV_ETR_BAR 0
+#define ADF_C4XXXIOV_ETR_MAX_BANKS 1
+#define ADF_C4XXXIOV_PF2VF_OFFSET	0x008
+#define ADF_C4XXXIOV_VINTMSK_OFFSET	0x004
+
+#define ADF_C4XXX_AE_FREQ     (800 * 1000000)
+
+#define ADF_C4XXXIOV_VINTSOU_OFFSET	0x0
+
+#define ADF_C4XXX_DEF_ASYM_MASK 0x1
+
+/* Virtual function fuses */
+#define ADF_C4XXXIOV_VFFUSECTL0_OFFSET (0x40)
+#define ADF_C4XXXIOV_VFFUSECTL1_OFFSET (0x44)
+#define ADF_C4XXXIOV_VFFUSECTL2_OFFSET (0x48)
+#define ADF_C4XXXIOV_VFLEGFUSES_OFFSET (0x4C)
+#define ADF_C4XXXIOV_VFSOFTSTRAPPULL0  (0x300)
+
+
+void adf_init_hw_data_c4xxxiov(struct adf_hw_device_data *hw_data);
+void adf_clean_hw_data_c4xxxiov(struct adf_hw_device_data *hw_data);
+#endif

@@ -1,0 +1,203 @@
+#!/bin/bash
+#################################################################
+#
+# This file is provided under a dual BSD/GPLv2 license.  When using or
+#   redistributing this file, you may do so under either license.
+# 
+#   GPL LICENSE SUMMARY
+# 
+#   Copyright(c) 2007-2023 Intel Corporation. All rights reserved.
+# 
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of version 2 of the GNU General Public License as
+#   published by the Free Software Foundation.
+# 
+#   This program is distributed in the hope that it will be useful, but
+#   WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+# 
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+#   The full GNU General Public License is included in this distribution
+#   in the file called LICENSE.GPL.
+# 
+#   Contact Information:
+#   Intel Corporation
+# 
+#   BSD LICENSE
+# 
+#   Copyright(c) 2007-2023 Intel Corporation. All rights reserved.
+#   All rights reserved.
+# 
+#   Redistribution and use in source and binary forms, with or without
+#   modification, are permitted provided that the following conditions
+#   are met:
+# 
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in
+#       the documentation and/or other materials provided with the
+#       distribution.
+#     * Neither the name of Intel Corporation nor the names of its
+#       contributors may be used to endorse or promote products derived
+#       from this software without specific prior written permission.
+# 
+#   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+#   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+#   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+#   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+#   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+#   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+#   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+#   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+#   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+#   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# 
+# 
+#  version: QAT.L.4.24.0-00005
+#
+#################################################################
+
+#################################################################
+# @file: adf_ctl_dbg_wrapper
+#
+# @description:
+#     Script wraps original adf_ctl tool to perform Debuggability
+#     related routines before and after adf_ctl execution.
+#     Debuggability routines can consits of:
+#     - shutting down synchronization daemon before ADF stop
+#       if deamon exists
+#     - starting synchronization daemon if the Debuggability
+#       feature is turned on for at least one device
+#
+#################################################################
+
+QAT_ADF_CTL_BIN=/usr/sbin/adf_ctl_bin
+QAT_DBG_DMN_PATH=/usr/sbin/qat_dbg_sync_daemon
+QAT_SYS_PATH=/sys/kernel/debug
+
+QAT_MAX_TERM_RETRY=5
+QAT_SLEEP_RETRY=0.1
+
+TerminateSyncDaemon()
+{
+    local -i attempt=0
+    local dmn_name
+
+    dmn_name=$(basename ${QAT_DBG_DMN_PATH})
+    if [ -z ${dmn_name} ]; then
+        exit 1
+    fi
+
+    # Term loop
+    while [ ${attempt} -lt ${QAT_MAX_TERM_RETRY} ]; do
+        pidof -x ${dmn_name} 2> /dev/null | xargs kill -TERM 2> /dev/null
+        if [ $? -ne 0 ]; then
+            break
+        fi
+        sleep $QAT_SLEEP_RETRY
+        ((attempt = attempt + 1))
+    done
+
+    # Check if there is any dbg daemon instance running
+    pidof -x ${dmn_name} > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        exit 0
+    fi
+
+    # Kill loop
+    attempt=0
+    while [ ${attempt} -lt ${QAT_MAX_TERM_RETRY} ]; do
+        pidof -x ${dmn_name} 2> /dev/null | xargs kill -KILL 2> /dev/null
+        if [ $? -ne 0 ]; then
+            break
+        fi
+        sleep $QAT_SLEEP_RETRY
+        ((attempt = attempt + 1))
+    done
+
+    # Check if there is any dbg daemon instance running
+    pidof -x ${dmn_name} > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        exit 0
+    fi
+
+    exit 1
+}
+
+GetNoOfDbgDevices()
+{
+    local -i dbg_on_ctr=0
+
+    dbg_cfg_dirs=($(find ${QAT_SYS_PATH} -name qat_debug))
+    for dbg_cfg_dir in ${dbg_cfg_dirs[@]}; do
+        if [[ ! -d ${dbg_cfg_dir} ]]; then
+            continue
+        fi
+        val=$(cat "${dbg_cfg_dir}/enabled" 2> /dev/null | tr -d '\0')
+        if [[ $? -ne 0 ]]; then
+            continue
+        fi
+        if [[ ${val} == "1" ]]; then
+            ((dbg_on_ctr = dbg_on_ctr + 1))
+        fi
+    done
+
+    echo ${dbg_on_ctr}
+}
+
+StartSyncDaemon()
+{
+    local dbg_devices
+
+    # Get number of devices configured with debuggability
+    dbg_devices=$(GetNoOfDbgDevices)
+    if [[ ${dbg_devices} -gt 0 ]]; then
+        if [[ ! -f ${QAT_DBG_DMN_PATH} ]]; then
+            exit 1
+        fi
+        ${QAT_DBG_DMN_PATH} > /dev/null 2>&1
+        if [[ $? -ne 0 ]]; then
+            exit 1
+        fi
+    fi
+}
+
+# Check against status command
+status_only=0
+for arg in "$@"; do
+    if [[ ${arg} =~ "status" ]]; then
+        status_only=1
+    fi
+done
+
+if [ ${status_only} -gt 0 ]; then
+    # Use original adf_ctl to start device
+    ${QAT_ADF_CTL_BIN} $@
+    exit $?
+fi
+
+# Terminate all instances of QAT dbg daemon
+out=$(TerminateSyncDaemon)
+if [ $? -ne 0 ]; then
+    echo "QAT dbg synchronization daemon terminating failed"
+    exit 1
+fi
+
+# Use original adf_ctl to start device
+${QAT_ADF_CTL_BIN} $@
+# Save original return code
+adf_ctl_rc=$?
+
+# Start daemon
+out=$(StartSyncDaemon)
+if [ $? -ne 0 ]; then
+    echo "Starting QAT dbg synchronization daemon failed"
+    exit 1
+fi
+
+exit ${adf_ctl_rc}
